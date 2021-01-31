@@ -70,7 +70,7 @@ class NetworkWrapper(ABC):
                 new_dict[k[7:]]=v
             checkpoint['model']=new_dict
         self.model.load_state_dict(checkpoint['model'])
-        print(f"Loaded {self.__class__.__name__} model")
+        # print(f"Loaded {self.__class__.__name__} model")
 
 
 class DepthSeedingNetwork(nn.Module):
@@ -126,7 +126,7 @@ class DSNWrapper(NetworkWrapper):
                                          self.center_direction_module,
                                         )
 
-        print("Let's use", torch.cuda.device_count(), "GPUs for DSN!")
+        # print("Let's use", torch.cuda.device_count(), "GPUs for DSN!")
         self.model = nn.DataParallel(self.model) if torch.cuda.is_available() else self.model
         self.model.to(self.device)
         
@@ -291,7 +291,7 @@ class RRNWrapper(NetworkWrapper):
         # Whole model, for nn.DataParallel
         self.model = RegionRefinementNetwork(self.encoder, self.decoder, self.foreground_module)
         
-        print("Let's use", torch.cuda.device_count(), "GPUs for RRN!")
+        # print("Let's use", torch.cuda.device_count(), "GPUs for RRN!")
         self.model = nn.DataParallel(self.model) if torch.cuda.is_available() else self.model
         self.model.to(self.device)
 
