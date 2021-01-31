@@ -32,7 +32,6 @@ class NetworkWrapper(ABC):
 
         # Build network and losses
         self.setup()
-
     @abstractmethod
     def setup(self):
         pass
@@ -64,7 +63,12 @@ class NetworkWrapper(ABC):
     def load(self, filename):
         """ Load the model checkpoint
         """
-        checkpoint = torch.load(filename)
+        checkpoint = torch.load(filename,map_location=self.device)
+        if str(self.device) == 'cpu':
+            new_dict = {} # remove 'module.'
+            for k,v in checkpoint['model'].items():
+                new_dict[k[7:]]=v
+            checkpoint['model']=new_dict
         self.model.load_state_dict(checkpoint['model'])
         print(f"Loaded {self.__class__.__name__} model")
 
@@ -123,7 +127,7 @@ class DSNWrapper(NetworkWrapper):
                                         )
 
         print("Let's use", torch.cuda.device_count(), "GPUs for DSN!")
-        self.model = nn.DataParallel(self.model)
+        self.model = nn.DataParallel(self.model) if torch.cuda.is_available() else self.model
         self.model.to(self.device)
         
     def cluster(self, xyz_img, offsets, fg_mask):
@@ -288,7 +292,7 @@ class RRNWrapper(NetworkWrapper):
         self.model = RegionRefinementNetwork(self.encoder, self.decoder, self.foreground_module)
         
         print("Let's use", torch.cuda.device_count(), "GPUs for RRN!")
-        self.model = nn.DataParallel(self.model)
+        self.model = nn.DataParallel(self.model) if torch.cuda.is_available() else self.model
         self.model.to(self.device)
 
     def run_on_batch(self, batch, threshold=0.5):
