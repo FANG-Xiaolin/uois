@@ -130,7 +130,7 @@ class DSNWrapper(NetworkWrapper):
         self.model = nn.DataParallel(self.model) if 'cuda' in self.device.type else self.model
         self.model.to(self.device)
         
-    def cluster(self, xyz_img, offsets, fg_mask):
+    def cluster(self, xyz_img, offsets, fg_mask, epsilon, sigma):
         """ Run mean shift clustering algorithm on predicted 3D centers
 
             @param xyz_img: a [3 x H x W] torch.FloatTensor
@@ -149,8 +149,8 @@ class DSNWrapper(NetworkWrapper):
         # Cluster the predicted centers (ONLY the predictions of foreground pixels)
         ms = cluster.GaussianMeanShift(
                 max_iters=self.config['max_GMS_iters'],
-                epsilon=self.config['epsilon'], 
-                sigma=self.config['sigma'], 
+                epsilon=epsilon, 
+                sigma=sigma, 
                 num_seeds=self.config['num_seeds'],
                 subsample_factor=self.config['subsample_factor']
              )
@@ -208,7 +208,7 @@ class DSNWrapper(NetworkWrapper):
 
         return -self.config['tau'] * distances
 
-    def run_on_batch(self, batch):
+    def run_on_batch(self, batch, epsilon=None,sigma=None):
         """ Run algorithm with 3D voting on batch of images in eval mode
 
             @param batch: a dictionary with the following keys:
@@ -227,6 +227,9 @@ class DSNWrapper(NetworkWrapper):
         initial_masks = torch.empty((N, H, W), dtype=torch.long, device=self.device)
         object_centers = []
 
+        epsilon = self.config['epsilon'] if epsilon is None else epsilon
+        sigma = self.config['sigma'] if sigma is None else sigma
+
         with torch.no_grad():
 
             # Apply model
@@ -240,7 +243,8 @@ class DSNWrapper(NetworkWrapper):
             for i in range(N):
                 clustered_img, cluster_centers = self.cluster(batch['xyz'][i], 
                                                               center_offsets[i], 
-                                                              fg_mask[i] == OBJECTS_LABEL)
+                                                              fg_mask[i] == OBJECTS_LABEL, 
+                                                              epsilon=epsilon, sigma=sigma)
                 initial_masks[i] = clustered_img
                 object_centers.append(cluster_centers)
 
@@ -322,10 +326,10 @@ class UOISNet3D(object):
     def __init__(self, config, dsn_filename, dsn_config, rrn_filename, rrn_config, device=None):
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu') if device is None else device
 
-        self.dsn = DSNWrapper(dsn_config, self.device)
+        self.dsn = DSNWrapper(dsn_config, device=self.device)
         self.dsn.load(dsn_filename)
 
-        self.rrn = RRNWrapper(rrn_config, self.device)
+        self.rrn = RRNWrapper(rrn_config, device=self.device)
         self.rrn.load(rrn_filename)
 
         self.config = config
@@ -495,7 +499,7 @@ class UOISNet3D(object):
         return initial_masks
 
 
-    def run_on_batch(self, batch):
+    def run_on_batch(self, batch, **kwargs):
         """ Run algorithm on batch of images in eval mode
             @param batch: a dictionary with the following keys:
                             - rgb: a [N x 3 x H x W] torch.FloatTensor
@@ -506,7 +510,7 @@ class UOISNet3D(object):
         N, _, H, W = batch['rgb'].shape
 
         # DSN. Note: this will send "batch" to device (e.g. GPU)
-        fg_masks, center_offsets, object_centers, initial_masks = self.dsn.run_on_batch(batch)
+        fg_masks, center_offsets, object_centers, initial_masks = self.dsn.run_on_batch(batch, **kwargs)
 
         # IMP
         initial_masks = self.process_initial_masks(batch, initial_masks, object_centers)
