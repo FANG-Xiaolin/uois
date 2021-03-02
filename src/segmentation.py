@@ -140,6 +140,7 @@ class DSNWrapper(NetworkWrapper):
             @return: a [H x W] torch.LongTensor
         """
         clustered_img = torch.zeros_like(fg_mask, dtype=torch.long)
+
         if torch.sum(fg_mask) == 0: # No foreground pixels to cluster
             return clustered_img, torch.zeros((0,3), device=self.device)
 
@@ -208,7 +209,7 @@ class DSNWrapper(NetworkWrapper):
 
         return -self.config['tau'] * distances
 
-    def run_on_batch(self, batch):
+    def run_on_batch(self, batch, use_gt_fg=False, gt_fg=None):
         """ Run algorithm with 3D voting on batch of images in eval mode
 
             @param batch: a dictionary with the following keys:
@@ -235,12 +236,14 @@ class DSNWrapper(NetworkWrapper):
             # Foreground
             fg_probs = F.softmax(fg_logits, dim=1) # Shape: [N x 3 x H x W]
             fg_mask = torch.argmax(fg_probs, dim=1) # Shape: [N x H x W]
+            if use_gt_fg:
+                fg_mask = torch.LongTensor(gt_fg).to(fg_mask.device) # {0,1,2}
 
             # Clustering, construct M
             for i in range(N):
-                clustered_img, cluster_centers = self.cluster(batch['xyz'][i], 
-                                                              center_offsets[i], 
-                                                              fg_mask[i] == OBJECTS_LABEL)
+                clustered_img, cluster_centers = self.cluster(batch['xyz'][i],
+                                                          center_offsets[i],
+                                                          fg_mask[i] == OBJECTS_LABEL)
                 initial_masks[i] = clustered_img
                 object_centers.append(cluster_centers)
 
@@ -495,7 +498,7 @@ class UOISNet3D(object):
         return initial_masks
 
 
-    def run_on_batch(self, batch):
+    def run_on_batch(self, batch, use_gt_fg=False, gt_fg=None):
         """ Run algorithm on batch of images in eval mode
             @param batch: a dictionary with the following keys:
                             - rgb: a [N x 3 x H x W] torch.FloatTensor
@@ -506,7 +509,7 @@ class UOISNet3D(object):
         N, _, H, W = batch['rgb'].shape
 
         # DSN. Note: this will send "batch" to device (e.g. GPU)
-        fg_masks, center_offsets, object_centers, initial_masks = self.dsn.run_on_batch(batch)
+        fg_masks, center_offsets, object_centers, initial_masks = self.dsn.run_on_batch(batch, use_gt_fg=use_gt_fg, gt_fg=gt_fg)
 
         # IMP
         initial_masks = self.process_initial_masks(batch, initial_masks, object_centers)
